@@ -1,0 +1,9 @@
+.build/
+Build/
+.DS_Store
+*.xcuserstate
+.swiftpm/
+.claude/settings.local.json
+
+# Internal design doc, kept locally rather than published
+macOS 常驻语音文本记录器 PRD.md

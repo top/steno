@@ -1,0 +1,76 @@
+name: Release
+
+# Every push to main is built and checked. A release is published only when
+# CFBundleShortVersionString names a version that has not been released yet, so
+# bumping that one value in Info.plist is what ships a new version — ordinary
+# pushes just verify that main still builds.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run checks
+        run: swift run ArbitrationStateMachineChecks
+
+      - name: Read version
+        id: version
+        run: |
+          version=$(plutil -extract CFBundleShortVersionString raw Sources/StenoApp/Info.plist)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version: $version"
+
+      - name: Build universal app bundle
+        env:
+          ARCHS: arm64 x86_64
+        run: scripts/build-app.sh
+
+      - name: Verify the binary is universal
+        run: |
+          archs=$(lipo -archs Build/Steno.app/Contents/MacOS/Steno)
+          echo "Architectures: $archs"
+          for required in arm64 x86_64; do
+            case " $archs " in
+              *" $required "*) ;;
+              *) echo "::error::Binary is missing the $required slice"; exit 1 ;;
+            esac
+          done
+
+      - name: Create DMG
+        run: |
+          hdiutil create \
+            -volname Steno \
+            -srcfolder Build/Steno.app \
+            -ov -format UDZO \
+            "Steno-${{ steps.version.outputs.version }}-universal.dmg"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="v${{ steps.version.outputs.version }}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "Release $tag already exists — bump CFBundleShortVersionString in Sources/StenoApp/Info.plist to publish a new one."
+            exit 0
+          fi
+          gh release create "$tag" \
+            --target "$GITHUB_SHA" \
+            --title "Steno $tag" \
+            --notes "Universal build for Apple Silicon and Intel Macs, macOS 15 or newer.
+
+          Download the DMG, drag Steno to Applications, then launch it. The app is
+          signed ad-hoc rather than notarized, so the first launch needs a
+          right-click → **Open** to get past Gatekeeper.
+
+          Steno lives in the menu bar and starts idle — click its icon and choose
+          **Start listening** to begin. macOS asks for microphone access at that
+          point." \
+            "Steno-${{ steps.version.outputs.version }}-universal.dmg"
