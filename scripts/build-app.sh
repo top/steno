@@ -28,6 +28,17 @@ cp "$BIN_DIR/Steno" "$APP/Contents/MacOS/Steno"
 cp "Sources/StenoApp/Info.plist" "$APP/Contents/Info.plist"
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
+# Finder, the Dock and the DMG all read Contents/Resources/AppIcon.icns, which
+# has to carry every size macOS asks for. sips + iconutil ship with macOS, so
+# the repo keeps one square source image and the sizes are derived here.
+ICONSET=$(mktemp -d)/AppIcon.iconset
+mkdir -p "$ICONSET"
+for size in 16 32 128 256 512; do
+    sips -z $size $size "Resources/AppIcon.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+    sips -z $((size * 2)) $((size * 2)) "Resources/AppIcon.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+
 # Sign the whole bundle (not just the linker's ad-hoc signature on the raw
 # binary) so Info.plist/Resources are sealed and TCC gets a stable identity
 # across rebuilds. Without this, mic permission silently fails to attach

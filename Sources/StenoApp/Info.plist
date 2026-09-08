@@ -8,6 +8,8 @@
     <string>Steno</string>
     <key>CFBundleExecutable</key>
     <string>Steno</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>local.steno</string>
     <key>CFBundlePackageType</key>
