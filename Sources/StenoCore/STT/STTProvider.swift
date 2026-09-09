@@ -75,6 +75,10 @@ public enum STTProviderError: LocalizedError {
     case invalidConfiguration(String)
     case missingAPIKey
     case unsupported(String)
+    /// The provider ran fine and heard nothing worth keeping. Unlike every other
+    /// error here this will not change on a second attempt, so it is the one
+    /// failure the pipeline is allowed to treat as final and discard.
+    case emptyTranscript
 
     public var errorDescription: String? {
         switch self {
@@ -84,6 +88,15 @@ public enum STTProviderError: LocalizedError {
             return "API key not found. Save it in Settings."
         case .unsupported(let message):
             return message
+        case .emptyTranscript:
+            return "No speech was recognized in this segment."
         }
+    }
+
+    /// Whether retrying could plausibly succeed. A wrong key or a dropped network
+    /// is worth another pass; silence never is.
+    public var isPermanent: Bool {
+        if case .emptyTranscript = self { return true }
+        return false
     }
 }

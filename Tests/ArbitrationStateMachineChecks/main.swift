@@ -235,6 +235,50 @@ check(runPendingAudioStoreChecks(), "pending audio spool should survive a round 
 
 print("✅ Pending audio spool assertions passed")
 
+check(runSTTRetryPolicyChecks(), "STT queue should retry transient errors and give up immediately on permanent ones")
+
+print("✅ STT retry policy assertions passed")
+
+/// Silence never becomes speech on a second pass, so a permanent error must not
+/// burn the retry budget — everything else must still get all three attempts.
+func runSTTRetryPolicyChecks() -> Bool {
+    func attempts(failingWith error: STTProviderError) -> Int {
+        let semaphore = DispatchSemaphore(value: 0)
+        let counter = Counter()
+        // The queue must outlive `enqueue`: its drain task holds `self` weakly,
+        // so a temporary here would be deallocated before anything runs.
+        let queue = STTJobQueue()
+        Task {
+            await queue.enqueue(
+                operation: {
+                    counter.increment()
+                    throw error
+                },
+                onAttempt: { _, _ in },
+                completion: { _ in semaphore.signal() }
+            )
+        }
+        semaphore.wait()
+        return counter.value
+    }
+
+    return attempts(failingWith: .emptyTranscript) == 1
+        && attempts(failingWith: .unsupported("network down")) == 3
+}
+
+final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.withLock { count += 1 }
+    }
+
+    var value: Int {
+        lock.withLock { count }
+    }
+}
+
 /// The spool is what stops an offline stretch from losing recordings, so the
 /// round trip has to hold: audio written, listed oldest-first, read back at
 /// 16-bit fidelity, and removed only when explicitly finished.
@@ -416,10 +460,17 @@ func runActivitySummaryChecks(on writer: DatabaseWriter, segment: TranscriptSegm
                 relatedBundleID: "com.example.thief"
             )
             try await writer.insertSegment(segment)
-            try await writer.markSegmentSTTFailed(segmentID: segment.id, reason: "boom")
+            try await writer.markSegmentTerminated(segmentID: segment.id, reason: "boom")
+
+            // A discarded segment is neither a failure to retry nor recorded time.
+            var silent = segment
+            silent.id = UUID().uuidString
+            try await writer.insertSegment(silent)
+            try await writer.markSegmentTerminated(segmentID: silent.id, status: "discarded", reason: "no speech")
 
             let summary = try await writer.activitySummary()
             succeeded = summary.failedSegments == 1
+                && summary.recordedMs == 0
                 && summary.capturedSegments == 0
                 && summary.lastEventState == CaptureState.yieldedToOtherInput.rawValue
                 && summary.lastEventReason == "external_input_active (com.example.thief)"

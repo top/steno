@@ -91,7 +91,7 @@ public struct AppleSystemSpeechProvider: STTProvider {
                 if let result, result.isFinal {
                     let text = result.bestTranscription.formattedString.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else {
-                        gate.fail(STTProviderError.unsupported("Apple System Speech returned no final text."))
+                        gate.fail(STTProviderError.emptyTranscript)
                         return
                     }
                     gate.succeed(

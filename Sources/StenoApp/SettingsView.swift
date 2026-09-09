@@ -157,9 +157,9 @@ struct SettingsView: View {
             SettingsSection(title: "Recording activity") {
                 if let activity = appState.activity {
                     HStack(spacing: 0) {
-                        activityStat("Transcribed", activity.completedSegments)
-                        activityStat("Failed", activity.failedSegments)
-                        activityStat("In progress", activity.pendingJobs)
+                        activityStat("Transcribed", activity.completedSegments.formatted())
+                        activityStat("Failed", activity.failedSegments.formatted())
+                        activityStat("Recorded time", Self.durationText(milliseconds: activity.recordedMs))
                     }
                 }
                 HStack(spacing: 8) {
@@ -436,9 +436,17 @@ struct SettingsView: View {
     }
 
     /// One count in the activity row: the number, with its label underneath.
-    private func activityStat(_ label: String, _ value: Int) -> some View {
+    /// Coarse on purpose: this is "how much has it done for me", not a stopwatch.
+    private static func durationText(milliseconds: Int) -> String {
+        let seconds = milliseconds / 1_000
+        if seconds < 60 { return "\(seconds)s" }
+        if seconds < 3_600 { return "\(seconds / 60)m" }
+        return "\(seconds / 3_600)h \((seconds % 3_600) / 60)m"
+    }
+
+    private func activityStat(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
-            Text(value, format: .number)
+            Text(value)
                 .font(.title3)
                 .monospacedDigit()
             Text(label)

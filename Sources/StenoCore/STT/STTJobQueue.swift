@@ -47,6 +47,9 @@ public actor STTJobQueue {
             } catch {
                 lastError = error
                 await job.onAttempt(attempt, error)
+                // A permanent error is the same error next second. Sleeping and
+                // asking again only delays the discard.
+                if (error as? STTProviderError)?.isPermanent == true { break }
                 guard attempt < maximumAttempts else { break }
                 try? await Task.sleep(nanoseconds: UInt64(1 << (attempt - 1)) * 1_000_000_000)
             }

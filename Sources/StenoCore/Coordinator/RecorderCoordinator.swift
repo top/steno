@@ -724,14 +724,25 @@ public actor RecorderCoordinator {
                 )
             } catch {
                 try? await databaseWriter.updateSTTJob(id: id, attemptCount: 3, state: "failed", error: error)
-                try? await databaseWriter.markSegmentSTTFailed(segmentID: segment.id, reason: error.localizedDescription)
+                try? await databaseWriter.markSegmentTerminated(segmentID: segment.id, reason: error.localizedDescription)
             }
+        case .failure(let error) where (error as? STTProviderError)?.isPermanent == true:
+            // Nothing was said. Keeping the audio would mean retrying this
+            // silence at every launch forever, and counting it as a failure would
+            // pin it in the activity stats with no way to clear it.
+            try? await databaseWriter.markSegmentTerminated(
+                segmentID: segment.id,
+                status: "discarded",
+                reason: error.localizedDescription
+            )
+            try? await databaseWriter.completeSTTJob(id: id)
+            await pendingAudioStore?.discard(jobID: id)
         case .failure(let error):
             // The spooled audio is deliberately left in place. Giving up on this
             // pass is not the same as giving up on the recording — it is retried
             // at next launch, so a bad key or a wrong endpoint can be corrected
             // without losing what was said.
-            try? await databaseWriter.markSegmentSTTFailed(segmentID: segment.id, reason: error.localizedDescription)
+            try? await databaseWriter.markSegmentTerminated(segmentID: segment.id, reason: error.localizedDescription)
             _ = try? await databaseWriter.recordStateTransition(
                 from: state,
                 to: state,

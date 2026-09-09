@@ -247,17 +247,21 @@ public actor DatabaseWriter {
         }
     }
 
-    public func markSegmentSTTFailed(segmentID: String, reason: String) throws {
+    /// Closes out a segment that produced no transcript. `stt_failed` means the
+    /// audio is still spooled and will be retried at next launch; `discarded`
+    /// means it never will be, so only use it once the audio is gone.
+    public func markSegmentTerminated(segmentID: String, status: String = "stt_failed", reason: String) throws {
         guard let db else { throw DatabaseError.openFailed("db unavailable") }
         var statement: OpaquePointer?
-        let sql = "UPDATE transcript_segments SET status='stt_failed', termination_reason=?, updated_at_ms=? WHERE id=?;"
+        let sql = "UPDATE transcript_segments SET status=?, termination_reason=?, updated_at_ms=? WHERE id=?;"
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
             throw DatabaseError.prepareFailed(lastErrorMessage())
         }
         defer { sqlite3_finalize(statement) }
-        guard bindText(statement, index: 1, value: String(reason.prefix(1_000))),
-              sqlite3_bind_int64(statement, 2, Self.nowMilliseconds()) == SQLITE_OK,
-              bindText(statement, index: 3, value: segmentID) else {
+        guard bindText(statement, index: 1, value: status),
+              bindText(statement, index: 2, value: String(reason.prefix(1_000))),
+              sqlite3_bind_int64(statement, 3, Self.nowMilliseconds()) == SQLITE_OK,
+              bindText(statement, index: 4, value: segmentID) else {
             throw DatabaseError.bindFailed(lastErrorMessage())
         }
         guard sqlite3_step(statement) == SQLITE_DONE else {
@@ -344,7 +348,7 @@ public actor DatabaseWriter {
         public let capturedSegments: Int
         public let completedSegments: Int
         public let failedSegments: Int
-        public let pendingJobs: Int
+        public let recordedMs: Int
         public let lastEventState: String?
         public let lastEventReason: String?
         public let lastEventAtMs: Int64?
@@ -368,7 +372,11 @@ public actor DatabaseWriter {
         let captured = try scalarInt("SELECT COUNT(*) FROM transcript_segments WHERE status='captured';")
         let completed = try scalarInt("SELECT COUNT(*) FROM transcript_segments WHERE status='completed';")
         let failed = try scalarInt("SELECT COUNT(*) FROM transcript_segments WHERE status='stt_failed';")
-        let pendingJobs = try scalarInt("SELECT COUNT(*) FROM stt_jobs WHERE state IN ('queued','running','retry_wait');")
+        // Duration of speech that actually made it to text, so the number moves
+        // only when the pipeline delivered something.
+        let recordedMs = try scalarInt(
+            "SELECT COALESCE(SUM(ended_at_ms - started_at_ms), 0) FROM transcript_segments WHERE status='completed';"
+        )
 
         var lastState: String?
         var lastReason: String?
@@ -393,7 +401,7 @@ public actor DatabaseWriter {
             capturedSegments: captured,
             completedSegments: completed,
             failedSegments: failed,
-            pendingJobs: pendingJobs,
+            recordedMs: recordedMs,
             lastEventState: lastState,
             lastEventReason: lastBundleID.map { "\(lastReason ?? "-") (\($0))" } ?? lastReason,
             lastEventAtMs: lastAt

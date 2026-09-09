@@ -84,7 +84,7 @@ public struct OpenAICompatibleSTTProvider: STTProvider {
         let decoded = try JSONDecoder().decode(TranscriptionResponse.self, from: responseData)
         let text = decoded.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else {
-            throw STTProviderError.unsupported("STT response contained no text.")
+            throw STTProviderError.emptyTranscript
         }
 
         return TranscriptionResult(

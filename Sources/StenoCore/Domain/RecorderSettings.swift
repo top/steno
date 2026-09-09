@@ -56,7 +56,7 @@ public enum STTProviderKind: String, Codable, CaseIterable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .customAPI: return "Custom API"
+        case .customAPI: return "Custom OpenAI API"
         case .appleSystem: return "Apple System Speech"
         }
     }
